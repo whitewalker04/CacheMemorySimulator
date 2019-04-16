@@ -739,6 +739,6 @@ int main(int argc, char *argv[] )
 			cref[i]->printCacheContent();
 		cout<<"Continue? (y=yes, n=no) :";
 		cin>>ch;
-	} while (ch!='n');
+	} while (ch!='n') ;
 	
 }
