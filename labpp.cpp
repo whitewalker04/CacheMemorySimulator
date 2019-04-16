@@ -352,6 +352,27 @@ int calCacheSize(int size, int block, int tagBits)
 	memory= 2*(block/8) + ((tagBits*block)/8) + size *block;
 	return memory;
 }
+void checkCharacters(int *error, char *token)
+{
+	int len=strlen(token);
+	printf("%s", token);
+	printf("Here\n");
+	int i=0;
+	while(len)
+	{
+		if(token[i]>=48 && token[i]==57)
+		{
+			*error=0;
+		}
+		else
+		{
+			 *error=ERROR;
+			 break;
+		}
+		len--;
+		i++;
+	}
+}
 
 MemoryReferenceTable * validateFile(int  *totalNumOfMemRef, int range)
 {   
@@ -424,6 +445,7 @@ MemoryReferenceTable * validateFile(int  *totalNumOfMemRef, int range)
 						if(token==NULL)
 							break;
 						//printf("%s\n", token);
+						//checkCharacters(&error,token);
 						//printf("%d", strlen(token));
 						if(token[0]=='0' && strlen(token)==2)
 							ok=1;
@@ -602,11 +624,11 @@ int computeNumberOfRepeats(MemoryReferenceTable *mref, int len)
 			}  
 		}
 	}
-	for(int i=0;i<len;i++)
+	/*for(int i=0;i<len;i++)
 	{
 		cout<<blocks[i]<<" ";
 	}
-	cout<<endl;
+	cout<<endl;*/
 	int a=0;
 	while(len)
 	{
@@ -637,73 +659,86 @@ int main(int argc, char *argv[] )
 	MemoryReferenceTable *mref;
 	TrackBlock *bref;
 	string tag;
+	char ch;
 	CacheStatus **cref;
 	//bin=convert(8);
-	printf("Press 'q' at any time to quit at any input prompt \n");
-	//calling all validation functions and validating inputs
-	validate(&sizeMM,4,32768, &numAddrLines,"size of main memory in bytes", 32768);
-	validate(&sizeCM,2,32768,&numCacheBits,"size of the cache in bytes",sizeMM);
-	validate(&sizeBlock,2,32768,&numOffBits,"cache block/lines size",sizeCM);
-	numCMBlocks=NUMBER_OF_BLOCKS(sizeCM,sizeBlock);
-	validateAssociativeDegree(&setDegree,numCMBlocks);	
-	validate(&replacementPolicy);
+	do
+	{
+		printf("Press 'q' at any time to quit at any input prompt \n");
+		//calling all validation functions and validating inputs
+		validate(&sizeMM,4,32768, &numAddrLines,"size of main memory in bytes", 32768);
+		validate(&sizeCM,2,32768,&numCacheBits,"size of the cache in bytes",sizeMM);
+		validate(&sizeBlock,2,32768,&numOffBits,"cache block/lines size",sizeCM);
+		numCMBlocks=NUMBER_OF_BLOCKS(sizeCM,sizeBlock);
+		validateAssociativeDegree(&setDegree,numCMBlocks);	
+		validate(&replacementPolicy);
+		
+		mref=validateFile(&totalNumOfMemRef, sizeMM);
+		
+		numMMBlocks=NUMBER_OF_BLOCKS(sizeMM,sizeBlock);
+		numTotalCacheSets=numCMBlocks/setDegree;
+		numIndexBits=numberOfBits(numCMBlocks/setDegree);
+		numTagBits=numAddrLines-(numOffBits+numIndexBits);
+		totalCacheSize=calCacheSize(sizeBlock,numCMBlocks, numTagBits);
+		bref=new TrackBlock[numTotalCacheSets];
+		for(int i=0;i<totalNumOfMemRef;i++)
+		{
+			mref[i].update(sizeBlock,numTotalCacheSets,setDegree);
+			mref[i].setTageNum(sizeBlock,numTotalCacheSets);
+		}
+		//printf("%d %d %d %d %d %d %d\n", numAddrLines, numOffBits, numMMBlocks, numTotalCacheSets,numIndexBits,numTagBits, totalCacheSize);
+		tag=initializeTag(numTagBits);
+		cout<<"Simulator output :"<<endl;
+		cout<<"Total number of address lines required = "<<numAddrLines<<endl;
+		cout<<"Number of bits for offset = "<<numOffBits<<endl;
+		cout<<"Number of bits for index = "<<numIndexBits<<endl;
+		cout<<"Number of bits for tag = "<<numTagBits<<endl;
+		cout<<"Total cache size required = "<<totalCacheSize<<"bytes"<<endl<<endl;
+		//printf("%s\n", tag.c_str());
+		cref=new CacheStatus*[numCMBlocks];
+		for(int i=0;i<numCMBlocks;i++)
+		{
+			cref[i]=new CacheStatus(tag,i);
+		}
+		/*for(int i=0;i<numCMBlocks;i++)
+		{
+			cref[i]->getStatus();	
+		}*/
+		for(int i=0;i<totalNumOfMemRef;i++)
+		{
+			int blockNum=mref[i].getBlockNum();
+			//cout<<"Block num"<<blockNum<<endl;
+			int cacheSetNum=mref[i].getCacheSetNum();
+			int tagNumBinary=convert(mref[i].getTagNum());
+			int memoryRef=mref[i].getmemoryRef();
+			char op=mref[i].getOperation();
+			string tag=to_string(tagNumBinary);
+			tag=tagInString(numTagBits,tag);
+			int exist=bref[cacheSetNum].found(blockNum);
+			string stat=computeMissOrHit(exist);
+			mref[i].updateStatus(stat);
+			int cacheBlockNumber=bref[cacheSetNum].getBlockNum(blockNum,cacheSetNum,setDegree,replacementPolicy,&isReplaced);
+			//cout<<"Replaced :"<<isReplaced<<endl;
+			//cout<<"Cblock"<<cacheBlockNumber<<endl;
+			cref[cacheBlockNumber]->update(op,1,tag,blockNum,isReplaced);
+		}
+		printMemoryReferenceTableHeader();
+		for(int i=0;i<totalNumOfMemRef;i++)
+			mref[i].printMemoryReferenceTableContent();
+		cout<<endl;
+		countRepeats=computeNumberOfRepeats(mref,totalNumOfMemRef);
+		float percentage =((float)(countRepeats*100))/totalNumOfMemRef;
+		cout<<fixed<<setprecision(2)<<"Highest Possible Hit Rate= "<<countRepeats<<"/"<<totalNumOfMemRef<<" = "<<percentage<<"%"<<endl;
+		cout<<endl;
+		countHits=computeNumberOfHits(mref,totalNumOfMemRef);
+		percentage =((float)(countHits*100))/totalNumOfMemRef;
+		cout<<fixed<<setprecision(2)<<"Actual Hit Rate= "<<countHits<<"/"<<totalNumOfMemRef<<" = "<<percentage<<"%"<<endl;
+		cout<<endl;
+		printCacheStatusHeader();
+		for(int i=0;i<numCMBlocks;i++)
+			cref[i]->printCacheContent();
+		cout<<"Continue? (y=yes, n=no) :";
+		cin>>ch;
+	} while (ch!='n');
 	
-	mref=validateFile(&totalNumOfMemRef, sizeMM);
-	
-	numMMBlocks=NUMBER_OF_BLOCKS(sizeMM,sizeBlock);
-	numTotalCacheSets=numCMBlocks/setDegree;
-	numIndexBits=numberOfBits(numCMBlocks/setDegree);
-	numTagBits=numAddrLines-(numOffBits+numIndexBits);
-	totalCacheSize=calCacheSize(sizeBlock,numCMBlocks, numTagBits);
-	bref=new TrackBlock[numTotalCacheSets];
-	for(int i=0;i<totalNumOfMemRef;i++)
-	{
-		mref[i].update(sizeBlock,numTotalCacheSets,setDegree);
-		mref[i].setTageNum(sizeBlock,numTotalCacheSets);
-	}
-	//printf("%d %d %d %d %d %d %d\n", numAddrLines, numOffBits, numMMBlocks, numTotalCacheSets,numIndexBits,numTagBits, totalCacheSize);
-	tag=initializeTag(numTagBits);
-	//printf("%s\n", tag.c_str());
-	cref=new CacheStatus*[numCMBlocks];
-	for(int i=0;i<numCMBlocks;i++)
-	{
-		cref[i]=new CacheStatus(tag,i);
-	}
-	/*for(int i=0;i<numCMBlocks;i++)
-	{
-		cref[i]->getStatus();	
-	}*/
-	for(int i=0;i<totalNumOfMemRef;i++)
-	{
-		int blockNum=mref[i].getBlockNum();
-		//cout<<"Block num"<<blockNum<<endl;
-		int cacheSetNum=mref[i].getCacheSetNum();
-		int tagNumBinary=convert(mref[i].getTagNum());
-		int memoryRef=mref[i].getmemoryRef();
-		char op=mref[i].getOperation();
-		string tag=to_string(tagNumBinary);
-		tag=tagInString(numTagBits,tag);
-		int exist=bref[cacheSetNum].found(blockNum);
-		string stat=computeMissOrHit(exist);
-		mref[i].updateStatus(stat);
-		int cacheBlockNumber=bref[cacheSetNum].getBlockNum(blockNum,cacheSetNum,setDegree,replacementPolicy,&isReplaced);
-		cout<<"Replaced :"<<isReplaced<<endl;
-		//cout<<"Cblock"<<cacheBlockNumber<<endl;
-		cref[cacheBlockNumber]->update(op,1,tag,blockNum,isReplaced);
-	}
-	printMemoryReferenceTableHeader();
-	for(int i=0;i<totalNumOfMemRef;i++)
-		mref[i].printMemoryReferenceTableContent();
-	cout<<endl;
-	countRepeats=computeNumberOfRepeats(mref,totalNumOfMemRef);
-	float percentage =((float)(countRepeats*100))/totalNumOfMemRef;
-	cout<<fixed<<setprecision(2)<<"Actual Hit Rate= "<<countRepeats<<"/"<<totalNumOfMemRef<<" = "<<percentage<<"%"<<endl;
-	cout<<endl;
-	countHits=computeNumberOfHits(mref,totalNumOfMemRef);
-	percentage =((float)(countHits*100))/totalNumOfMemRef;
-	cout<<fixed<<setprecision(2)<<"Actual Hit Rate= "<<countHits<<"/"<<totalNumOfMemRef<<" = "<<percentage<<"%"<<endl;
-	cout<<endl;
-	printCacheStatusHeader();
-	for(int i=0;i<numCMBlocks;i++)
-		cref[i]->printCacheContent();
 }
